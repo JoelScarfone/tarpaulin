@@ -1,5 +1,6 @@
 use std::rc::Rc;
 use std::ops::Deref;
+use std::borrow::Borrow;
 use std::path::{PathBuf, Path};
 use std::collections::{HashSet, HashMap};
 use std::fs::File;
@@ -7,15 +8,15 @@ use std::io::{BufReader, BufRead};
 use cargo::core::{Workspace, Package};
 use cargo::sources::PathSource;
 use cargo::util::Config as CargoConfig;
-use syntex_syntax::attr;
-use syntex_syntax::visit::{self, Visitor, FnKind};
-use syntex_syntax::codemap::{CodeMap, Span, FilePathMapping};
-use syntex_syntax::ast::*;
-use syntex_syntax::parse::{self, ParseSess};
-use syntex_syntax::parse::token::*;
-use syntex_syntax::tokenstream::TokenTree;
-use syntex_syntax::errors::Handler;
-use syntex_syntax::errors::emitter::ColorConfig;
+use syntax::attr;
+use syntax::visit::{self, Visitor, FnKind};
+use syntax::codemap::{CodeMap, Span, FilePathMapping, FileName};
+use syntax::ast::*;
+use syntax::parse::{self, ParseSess};
+use syntax::parse::token::*;
+use syntax::tokenstream::TokenTree;
+use syntax::errors::Handler;
+use syntax::errors::emitter::ColorConfig;
 use regex::Regex;
 use config::Config;
 
@@ -212,9 +213,12 @@ impl<'a> CoverageVisitor<'a> {
     fn ignore_lines(&mut self, span: Span) {
         if let Ok(ls) = self.codemap.span_to_lines(span) {
             for line in &ls.lines {
-                let pb = PathBuf::from(self.codemap.span_to_filename(span) as String);
-                // Line number is index+1
-                self.lines.push((pb, line.line_index + 1));
+                match self.codemap.span_to_filename(span) {
+                    FileName::Real(pb) => {
+                        self.lines.push((pb, line.line_index + 1));
+                    },
+                    _ => {},
+                };
             }
         }
     }    
@@ -248,9 +252,12 @@ impl<'a> CoverageVisitor<'a> {
                     true
                 };
                 if is_code && !SINGLE_LINE.is_match(text) {
-                    let pb = PathBuf::from(self.codemap.span_to_filename(span) as String);
-                    // Line number is index+1
-                    self.coverable.push((pb, line.line_index + 1));
+                    match self.codemap.span_to_filename(span) {
+                        FileName::Real(pb) => {
+                            self.coverable.push((pb, line.line_index + 1));
+                        },
+                        _ => {},
+                    };
                 } 
             }
         }
@@ -279,13 +286,17 @@ impl<'a> CoverageVisitor<'a> {
     fn find_ignorable_lines(&mut self, span: Span) {
         if let Ok(l) = self.codemap.span_to_lines(span) {
             for line in &l.lines {
-                let pb = PathBuf::from(self.codemap.span_to_filename(span) as String);
-                if let Some(s) = l.file.get_line(line.line_index) {
-                    // Is this one of those pointless {, } or }; or )?; only lines?
-                    if !s.chars().any(|x| !"(){}[]?;\t ,".contains(x)) {
-                        self.lines.push((pb, line.line_index + 1));
-                    }
-                }
+                match self.codemap.span_to_filename(span) {
+                    FileName::Real(pb) => {
+                        if let Some(s) = l.file.get_line(line.line_index) {
+                            // Is this one of those pointless {, } or }; or )?; only lines?
+                            if !s.chars().any(|x| !"(){}[]?;\t ,".contains(x)) {
+                                self.lines.push((pb, line.line_index + 1));
+                            }
+                        }
+                    },
+                    _ => {},
+                };
             }
         }
     }
@@ -307,16 +318,22 @@ impl<'a> CoverageVisitor<'a> {
                 _ => {},
             }
         }
-        let pb = PathBuf::from(self.codemap.span_to_filename(s) as String);
-        if let Ok(ts) = self.codemap.span_to_lines(s) {
-            for l in ts.lines.iter().skip(1) {
-                let linestr = if let Some(linestr) = ts.file.get_line(l.line_index) {
-                    linestr
-                } else {
-                    ""
-                };
-                if !cover.contains(&l.line_index) && (linestr.len() <= (l.end_col.0 - l.start_col.0)) {
-                    self.lines.push((pb.clone(), l.line_index+1));     
+        let pb = self.codemap.span_to_filename(s);
+        let pb = match self.codemap.span_to_filename(s) {
+            FileName::Real(pb) => Some(pb),
+            _ => None,
+        };
+        if let Some(pb) = pb {
+            if let Ok(ts) = self.codemap.span_to_lines(s) {
+                for l in ts.lines.iter().skip(1) {
+                    let linestr = if let Some(linestr) = ts.file.get_line(l.line_index) {
+                        linestr.borrow()
+                    } else {
+                        ""
+                    };
+                    if !cover.contains(&l.line_index) && (linestr.len() <= (l.end_col.0 - l.start_col.0)) {
+                        self.lines.push((pb.clone(), l.line_index+1));     
+                    }
                 }
             }
         }
@@ -327,27 +344,28 @@ impl<'a> CoverageVisitor<'a> {
     /// span is coverable (as it is function definition) therefore shouldn't be 
     /// added to ignore list.
     fn ignore_where_statements(&mut self, gen: &Generics, container: Span) {
-        let pb = PathBuf::from(self.codemap.span_to_filename(gen.span) as String);
-        let first_line = {
-            let mut line = None;
-            if let Ok(fl) = self.codemap.span_to_lines(container) {
-                if let Some(s) = fl.lines.get(0) {
-                    line = Some(s.line_index);
-                }
-            } 
-            line
-        };
-        if let Some(first_line) = first_line {
-            for w in &gen.where_clause.predicates {
-                let span = match w {
-                    &WherePredicate::BoundPredicate(ref b) => b.span,
-                    &WherePredicate::RegionPredicate(ref r) => r.span,
-                    &WherePredicate::EqPredicate(ref e) => e.span,
-                };
-                let end = self.get_line_indexes(span.end_point());
-                if let Some(&end) = end.last() {
-                    for l in (first_line+1)..(end+1) {
-                        self.lines.push((pb.clone(), l+1));
+        if let FileName::Real(pb) = self.codemap.span_to_filename(gen.span) {
+            let first_line = {
+                let mut line = None;
+                if let Ok(fl) = self.codemap.span_to_lines(container) {
+                    if let Some(s) = fl.lines.get(0) {
+                        line = Some(s.line_index);
+                    }
+                } 
+                line
+            };
+            if let Some(first_line) = first_line {
+                for w in &gen.where_clause.predicates {
+                    let span = match w {
+                        &WherePredicate::BoundPredicate(ref b) => b.span,
+                        &WherePredicate::RegionPredicate(ref r) => r.span,
+                        &WherePredicate::EqPredicate(ref e) => e.span,
+                    };
+                    let end = self.get_line_indexes(span.end_point());
+                    if let Some(&end) = end.last() {
+                        for l in (first_line+1)..(end+1) {
+                            self.lines.push((pb.clone(), l+1));
+                        }
                     }
                 }
             }
@@ -409,9 +427,13 @@ impl<'v, 'a> Visitor<'v> for CoverageVisitor<'a> {
                     // mod imports show up as coverable. Ignore
                     self.ignore_lines(s);
                 }
-                let mod_path = PathBuf::from(self.codemap.span_to_filename(m.inner));
-                if !self.covered.contains(&mod_path) {
-                    visit::walk_mod(self, m);
+                match self.codemap.span_to_filename(m.inner) {
+                    FileName::Real(mod_path) => {
+                        if !self.covered.contains(&mod_path) {
+                            visit::walk_mod(self, m);
+                        }
+                    },
+                    _=>{},
                 }
             }
         } 
@@ -465,7 +487,7 @@ impl<'v, 'a> Visitor<'v> for CoverageVisitor<'a> {
                             }
                         }
                     },
-                    ExprKind::MethodCall(_, _, ref args) => {
+                    ExprKind::MethodCall(_, ref args) => {
                         let mut it = args.iter();
                         it.next(); // First is function call
                         for i in it {
@@ -495,12 +517,16 @@ impl<'v, 'a> Visitor<'v> for CoverageVisitor<'a> {
                     _ => {},
                 }
                 if !cover.is_empty() {
-                    let pb = PathBuf::from(self.codemap.span_to_filename(ex.span) as String);
-                    for l in &s.lines {
-                        if !cover.contains(&l.line_index) {
-                            self.lines.push((pb.clone(), l.line_index + 1));
-                        }
-                    }
+                    match self.codemap.span_to_filename(ex.span) {
+                        FileName::Real(pb) => {
+                            for l in &s.lines {
+                                if !cover.contains(&l.line_index) {
+                                    self.lines.push((pb.clone(), l.line_index + 1));
+                                }
+                            }
+                        },
+                        _ => {},
+                    };
                 }
             }
         }
@@ -572,8 +598,12 @@ impl<'v, 'a> Visitor<'v> for CoverageVisitor<'a> {
                         None 
                     };
                     if first_line.is_some() && first_line != inner_line {
-                        let pb = PathBuf::from(self.codemap.span_to_filename(b.span) as String);
-                        self.lines.push((pb, first_line.unwrap() +1));
+                        match self.codemap.span_to_filename(b.span) {
+                            FileName::Real(pb) => {
+                                self.lines.push((pb, first_line.unwrap() + 1));
+                            },
+                            _ => {},
+                        };
                     }
                 }
             }

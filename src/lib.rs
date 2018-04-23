@@ -1,7 +1,7 @@
 extern crate nix;
 extern crate cargo;
 extern crate gimli;
-extern crate syntex_syntax;
+extern crate syntax;
 extern crate object;
 extern crate memmap;
 extern crate coveralls_api;
