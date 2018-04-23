@@ -1,4 +1,5 @@
 use std::rc::Rc;
+use std::cmp;
 use std::ops::Deref;
 use std::borrow::Borrow;
 use std::path::{PathBuf, Path};
@@ -10,7 +11,7 @@ use cargo::sources::PathSource;
 use cargo::util::Config as CargoConfig;
 use syntax::attr;
 use syntax::visit::{self, Visitor, FnKind};
-use syntax::codemap::{CodeMap, Span, FilePathMapping, FileName};
+use syntax::codemap::{CodeMap, Span, FilePathMapping, FileName, BytePos};
 use syntax::ast::*;
 use syntax::parse::{self, ParseSess};
 use syntax::parse::token::*;
@@ -361,7 +362,9 @@ impl<'a> CoverageVisitor<'a> {
                         &WherePredicate::RegionPredicate(ref r) => r.span,
                         &WherePredicate::EqPredicate(ref e) => e.span,
                     };
-                    let end = self.get_line_indexes(span.end_point());
+                    let sdata = span.data();
+                    let lo = cmp::max(sdata.hi.0 -1, sdata.lo.0);
+                    let end = self.get_line_indexes(sdata.with_lo(BytePos(lo)));
                     if let Some(&end) = end.last() {
                         for l in (first_line+1)..(end+1) {
                             self.lines.push((pb.clone(), l+1));
