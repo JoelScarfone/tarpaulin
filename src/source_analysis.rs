@@ -383,15 +383,21 @@ impl<'v, 'a> Visitor<'v> for CoverageVisitor<'a> {
         match i.node {
             ItemKind::ExternCrate(..) => self.ignore_lines(i.span),
             ItemKind::Fn(_, _, _, _, ref gen, ref block) => {
+                let mut covering = true;
                 if attr::contains_name(&i.attrs, "test") && self.config.ignore_tests {
                     self.ignore_lines(i.span);
                     self.ignore_lines(block.deref().span);
+                    covering = false;
                 } else if attr::contains_name(&i.attrs, "inline") {
                     self.cover_lines(block.deref().span);
                 }
                 if attr::contains_name(&i.attrs, "ignore") && !self.config.run_ignored {
                     self.ignore_lines(i.span);
                     self.ignore_lines(block.deref().span);
+                    covering = false;
+                }
+                if covering && gen.params.is_empty() {
+                    self.cover_lines(i.span);
                 }
                 self.ignore_where_statements(gen, i.span);
             },
@@ -452,7 +458,7 @@ impl<'v, 'a> Visitor<'v> for CoverageVisitor<'a> {
         }
         visit::walk_trait_item(self, ti);
     }
-
+/*
     fn visit_fn(&mut self, fk: FnKind, fd: &FnDecl, s: Span, _: NodeId) {
         match fk {
             FnKind::ItemFn(_, g, _,_,_,_,_) => {
@@ -469,7 +475,7 @@ impl<'v, 'a> Visitor<'v> for CoverageVisitor<'a> {
         }
         visit::walk_fn(self, fk, fd, s);
     }
-
+*/
     fn visit_expr(&mut self, ex: &Expr) {
         if let Ok(s) = self.codemap.span_to_lines(ex.span) {
             // If expression is multiple lines we might have to remove some of 
