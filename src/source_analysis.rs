@@ -632,8 +632,8 @@ impl<'v, 'a> Visitor<'v> for CoverageVisitor<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use syntex_syntax::parse::filemap_to_parser;
-    use syntex_syntax::parse::parser::Parser;
+    use syntax::parse::filemap_to_parser;
+    use syntax::parse::parser::Parser;
 
     struct TestContext {
         conf: Config,
@@ -643,7 +643,7 @@ mod tests {
 
     impl TestContext {
         fn generate_parser(&self, filename: &str, src_string: &str) -> Parser {
-            let filemap = self.codemap.new_filemap(filename.to_string(), 
+            let filemap = self.codemap.new_filemap(FileName::Real(PathBuf::from(filename)), 
                                                    src_string.to_string());
             filemap_to_parser(&self.parse_session, filemap)
         }
