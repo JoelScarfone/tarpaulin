@@ -1,7 +1,6 @@
 use std::rc::Rc;
 use std::cmp;
 use std::ops::Deref;
-use std::borrow::Borrow;
 use std::path::{PathBuf, Path};
 use std::collections::{HashSet, HashMap};
 use std::fs::File;
@@ -10,7 +9,7 @@ use cargo::core::{Workspace, Package};
 use cargo::sources::PathSource;
 use cargo::util::Config as CargoConfig;
 use syntax::attr;
-use syntax::visit::{self, Visitor, FnKind};
+use syntax::visit::{self, Visitor};
 use syntax::codemap::{CodeMap, Span, FilePathMapping, FileName, BytePos};
 use syntax::ast::*;
 use syntax::parse::{self, ParseSess};
@@ -319,7 +318,6 @@ impl<'a> CoverageVisitor<'a> {
                 _ => {},
             }
         }
-        let pb = self.codemap.span_to_filename(s);
         let pb = match self.codemap.span_to_filename(s) {
             FileName::Real(pb) => Some(pb),
             _ => None,
@@ -328,9 +326,9 @@ impl<'a> CoverageVisitor<'a> {
             if let Ok(ts) = self.codemap.span_to_lines(s) {
                 for l in ts.lines.iter().skip(1) {
                     let linestr = if let Some(linestr) = ts.file.get_line(l.line_index) {
-                        linestr.borrow()
+                        linestr.into_owned()
                     } else {
-                        ""
+                        String::new()
                     };
                     if !cover.contains(&l.line_index) && (linestr.len() <= (l.end_col.0 - l.start_col.0)) {
                         self.lines.push((pb.clone(), l.line_index+1));     
@@ -404,9 +402,9 @@ impl<'v, 'a> Visitor<'v> for CoverageVisitor<'a> {
             ItemKind::Impl(_, _, _, _, _, _, ref items) => {
                 for i in items {
                     match i.node {
-                        ImplItemKind::Method(ref sig,_) => {
+                        ImplItemKind::Method(_, _) => {
                             self.cover_lines(i.span);
-                            self.ignore_where_statements(&sig.generics, i.span);
+                            self.ignore_where_statements(&i.generics, i.span);
                         }
                         _ => {},
                     }
