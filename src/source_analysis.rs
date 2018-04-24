@@ -456,24 +456,8 @@ impl<'v, 'a> Visitor<'v> for CoverageVisitor<'a> {
         }
         visit::walk_trait_item(self, ti);
     }
-/*
-    fn visit_fn(&mut self, fk: FnKind, fd: &FnDecl, s: Span, _: NodeId) {
-        match fk {
-            FnKind::ItemFn(_, g, _,_,_,_,_) => {
-                if !g.ty_params.is_empty() {
-                    self.cover_lines(s);
-                }
-            },
-            FnKind::Method(_, sig, _, _) => {
-                if !sig.generics.ty_params.is_empty() {
-                    self.cover_lines(s);
-                }
-            },
-            _ => {},
-        }
-        visit::walk_fn(self, fk, fd, s);
-    }
-*/
+
+
     fn visit_expr(&mut self, ex: &Expr) {
         if let Ok(s) = self.codemap.span_to_lines(ex.span) {
             // If expression is multiple lines we might have to remove some of 
