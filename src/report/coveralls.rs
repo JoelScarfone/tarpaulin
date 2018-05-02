@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use coveralls_api::*;
 use tracer::TracerData;
 use config::Config;
+use serde_json;
+use reqwest;
 
 pub fn export(coverage_data: &[TracerData], config: &Config) {
     if let Some(ref key) = config.coveralls {
@@ -42,8 +44,19 @@ pub fn export(coverage_data: &[TracerData], config: &Config) {
 
         let res = match config.report_uri {
             Some(ref uri) => {
-                println!("Sending report to endpoint: {}", uri);
-                report.send_to_endpoint(uri)
+
+                let mut json = serde_json::to_string(&report).expect("Error converting report to a string");
+                let json = json.replace("\"source_digest\":", "\"source\":");
+
+                let mut params = HashMap::new();
+                params.insert("json", json);
+
+                let client = reqwest::Client::new();
+                let res = client.post(uri)
+                    .form(&params)
+                    .send().unwrap();
+                println!("{:?}", res);
+                Ok(())
             },
             None => {
                 println!("Sending coverage data to coveralls.io");
