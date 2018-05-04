@@ -76,6 +76,8 @@ pub struct Config {
     pub exclude: Vec<String>,
     /// Varargs to be forwarded to the test executables.
     pub varargs: Vec<String>,
+    pub branch_name : Option<String>,
+    pub commit : Option<String>,
 }
 
 
@@ -116,6 +118,14 @@ impl Config {
             Some(r) => Some(r.to_string()),
             None => None
         };
+        let branch_name = match args.value_of("branch-name"){
+            Some(b) => Some(b.to_string()),
+            None => None
+        };
+        let commit = match args.value_of("commit"){
+            Some(c) => Some(c.to_string()),
+            None => None
+        };
         let out:Vec<OutputFile> = values_t!(args.values_of("out"), OutputFile)
             .unwrap_or_default();
         let features: Vec<String> = match args.values_of_lossy("features") {
@@ -154,6 +164,8 @@ impl Config {
             packages: packages,
             exclude: exclude,
             varargs: varargs,
+            branch_name: branch_name,
+            commit: commit,
         }
     }
 

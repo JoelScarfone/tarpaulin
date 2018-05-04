@@ -45,17 +45,32 @@ pub fn export(coverage_data: &[TracerData], config: &Config) {
         let res = match config.report_uri {
             Some(ref uri) => {
 
-                let mut json = serde_json::to_string(&report).expect("Error converting report to a string");
+                let mut json = serde_json::to_value(&report).expect("Error converting report to a json");
+
+                if let Some(ref commit) = config.commit {
+                    json["git"]["head"]["message"] = serde_json::Value::String(commit.to_string());
+                    json["git"]["head"]["id"] = serde_json::Value::String(commit.to_string());
+                }
+
+                if let Some(ref branch_name) = config.branch_name {
+                    json["git"]["branch"] = serde_json::Value::String(branch_name.to_string());
+                }
+
+                let mut json = serde_json::to_string(&json).expect("Error converting report to a string");
+
                 let json = json.replace("\"source_digest\":", "\"source\":");
 
                 let mut params = HashMap::new();
                 params.insert("json", json);
 
                 let client = reqwest::Client::new();
-                let res = client.post(uri)
+                let res_json : serde_json::Value = client.post(uri)
                     .form(&params)
-                    .send().unwrap();
-                println!("{:?}", res);
+                    .send().unwrap().json().unwrap();
+
+                let report_uri = uri.replace("api/v1/jobs", &format!("builds/{}", res_json["build_id"]));
+                println!("Code coverage report: {}", report_uri);
+
                 Ok(())
             },
             None => {

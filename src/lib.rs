@@ -14,6 +14,7 @@ extern crate serde_json;
 extern crate quick_xml;
 extern crate regex;
 extern crate reqwest;
+extern crate url;
 
 use std::env;
 use std::io;
